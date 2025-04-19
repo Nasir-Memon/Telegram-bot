@@ -1,5 +1,4 @@
 from keep_alive import keep_alive  # 🟢 Start web server to keep Replit alive
-from apscheduler.schedulers.background import BackgroundScheduler
 
 keep_alive()
 
@@ -15,14 +14,6 @@ BOT_TOKEN = os.environ['BOT_TOKEN']
 ASK_COIN, SHOW_DETAILS, ASK_ADVICE = range(3)
 
 # ---- Helper Functions ----
-
-def ping():
-    """Ping function to keep Replit alive."""
-    try:
-        response = requests.get("https://your_replit_project_url")
-        print("Ping successful")
-    except requests.exceptions.RequestException as e:
-        print(f"Error: {e}")
 
 def get_price(symbol):
     url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol.upper()}USDT"
@@ -77,7 +68,6 @@ def calculate_indicators(prices):
 
     indicators['Stochastic'] = (np_prices[-1] - np.min(np_prices[-14:])) / (
         np.max(np_prices[-14:]) - np.min(np_prices[-14:])) * 100
-    )
     indicators['Ichimoku'] = (np_prices[-9:].mean() +
                               np_prices[-26:].mean()) / 2
     indicators['ADX'] = abs(np.mean(delta[-14:]))
@@ -97,6 +87,11 @@ def strong_support_resistance(prices):
     resistance = sorted_prices[int(len(prices) * 0.85)]
     return support, resistance
 
+
+# ---- Ping Handler ----
+
+async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Bot is alive and working fine! ✅")
 
 # ---- Handlers ----
 
@@ -275,13 +270,11 @@ conv_handler = ConversationHandler(
     },
     fallbacks=[])
 
+# Adding ping handler
+app.add_handler(CommandHandler("ping", ping))
+
 app.add_handler(conv_handler)
 app.add_handler(MessageHandler(filters.ALL, unknown_message))
-
-# Schedule ping every 5 minutes to keep Replit alive
-scheduler = BackgroundScheduler()
-scheduler.add_job(ping, 'interval', minutes=5)
-scheduler.start()
 
 print("🤖 Bot is running...")
 app.run_polling()
