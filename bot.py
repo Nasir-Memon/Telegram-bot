@@ -4,6 +4,8 @@ from datetime import datetime
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 import numpy as np
+from apscheduler.schedulers.background import BackgroundScheduler
+import time
 
 BOT_TOKEN = os.environ['BOT_TOKEN']
 
@@ -83,6 +85,17 @@ def strong_support_resistance(prices):
     support = sorted_prices[int(len(prices) * 0.15)]
     resistance = sorted_prices[int(len(prices) * 0.85)]
     return support, resistance
+
+
+# ---- Ping Functionality ----
+
+def ping():
+    print("Bot is alive!")
+
+# Set up the scheduler
+scheduler = BackgroundScheduler()
+scheduler.add_job(ping, 'interval', minutes=5)  # Runs every 5 minutes
+scheduler.start()
 
 
 # ---- Handlers ----
@@ -224,47 +237,38 @@ async def handle_advice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         resistance * 1.03 if signal == "SHORT" else None)
 
     fmt = lambda x: f"{x:.8f}" if price < 0.1 else f"{x:.2f}"
-    reason_text = '\n'.join([f"- {r}" for r in reasons])
 
     advice = f"""
-🎯 Trade Suggestion: *{signal}*
-📊 Score: {score:.2f}
+💡 **Trade Signal**: {signal}
+➡️ **Take Profit**: {fmt(tp)}
+⬇️ **Stop Loss**: {fmt(sl)}
 
-📌 Reasoning:
-{reason_text}
-
-📉 Price: ${fmt(price)}, Support: ${fmt(support)}, Resistance: ${fmt(resistance)}
+Reasons:
+- {', '.join(reasons)}
 """
-
-    if signal != "NEUTRAL":
-        advice += f"""🛑 Stop Loss: ${fmt(sl)}
-🎯 Take Profit: ${fmt(tp)}"""
-
-    advice += "\n\n⚠️ *Disclaimer:* This is a highly accurate AI-based suggestion using 15+ top indicators. Not financial advice. Please DYOR."
-
-    await update.message.reply_text(advice, parse_mode="Markdown")
+    await update.message.reply_text(advice)
     return ConversationHandler.END
 
 
-async def unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Type /start to begin.")
+# ---- Main Bot Setup ----
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Goodbye! Type /start to initiate a new query.")
+    return ConversationHandler.END
 
 
-# ---- Main Setup ----
-
-app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-conv_handler = ConversationHandler(
-    entry_points=[CommandHandler("start", start)],
+conversation_handler = ConversationHandler(
+    entry_points=[CommandHandler('start', start)],
     states={
-        ASK_COIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_coin)],
-        ASK_ADVICE:
-        [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_advice)],
+        ASK_COIN: [MessageHandler(filters.TEXT, ask_coin)],
+        ASK_ADVICE: [MessageHandler(filters.TEXT, handle_advice)],
     },
-    fallbacks=[])
+    fallbacks=[CommandHandler('cancel', cancel)]
+)
 
-app.add_handler(conv_handler)
-app.add_handler(MessageHandler(filters.ALL, unknown_message))
 
-print("🤖 Bot is running...")
-app.run_polling()
+if __name__ == '__main__':
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    application.add_handler(conversation_handler)
+    application.run_polling()
