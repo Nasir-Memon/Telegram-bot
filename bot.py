@@ -1,7 +1,3 @@
-from keep_alive import keep_alive  # 🟢 Start web server to keep Replit alive
-
-keep_alive()
-
 import os
 import requests
 from datetime import datetime
