@@ -1,11 +1,14 @@
+from keep_alive import keep_alive  # 🟢 Start web server to keep Replit alive
+from apscheduler.schedulers.background import BackgroundScheduler
+
+keep_alive()
+
 import os
 import requests
 from datetime import datetime
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 import numpy as np
-from apscheduler.schedulers.background import BackgroundScheduler
-import time
 
 BOT_TOKEN = os.environ['BOT_TOKEN']
 
@@ -13,6 +16,13 @@ ASK_COIN, SHOW_DETAILS, ASK_ADVICE = range(3)
 
 # ---- Helper Functions ----
 
+def ping():
+    """Ping function to keep Replit alive."""
+    try:
+        response = requests.get("https://your_replit_project_url")
+        print("Ping successful")
+    except requests.exceptions.RequestException as e:
+        print(f"Error: {e}")
 
 def get_price(symbol):
     url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol.upper()}USDT"
@@ -67,6 +77,7 @@ def calculate_indicators(prices):
 
     indicators['Stochastic'] = (np_prices[-1] - np.min(np_prices[-14:])) / (
         np.max(np_prices[-14:]) - np.min(np_prices[-14:])) * 100
+    )
     indicators['Ichimoku'] = (np_prices[-9:].mean() +
                               np_prices[-26:].mean()) / 2
     indicators['ADX'] = abs(np.mean(delta[-14:]))
@@ -87,19 +98,7 @@ def strong_support_resistance(prices):
     return support, resistance
 
 
-# ---- Ping Functionality ----
-
-def ping():
-    print("Bot is alive!")
-
-# Set up the scheduler
-scheduler = BackgroundScheduler()
-scheduler.add_job(ping, 'interval', minutes=5)  # Runs every 5 minutes
-scheduler.start()
-
-
 # ---- Handlers ----
-
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -237,38 +236,52 @@ async def handle_advice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         resistance * 1.03 if signal == "SHORT" else None)
 
     fmt = lambda x: f"{x:.8f}" if price < 0.1 else f"{x:.2f}"
+    reason_text = '\n'.join([f"- {r}" for r in reasons])
 
     advice = f"""
-💡 **Trade Signal**: {signal}
-➡️ **Take Profit**: {fmt(tp)}
-⬇️ **Stop Loss**: {fmt(sl)}
+🎯 Trade Suggestion: *{signal}*
+📊 Score: {score:.2f}
 
-Reasons:
-- {', '.join(reasons)}
+📌 Reasoning:
+{reason_text}
+
+📉 Price: ${fmt(price)}, Support: ${fmt(support)}, Resistance: ${fmt(resistance)}
 """
-    await update.message.reply_text(advice)
+
+    if signal != "NEUTRAL":
+        advice += f"""🛑 Stop Loss: ${fmt(sl)}
+🎯 Take Profit: ${fmt(tp)}"""
+
+    advice += "\n\n⚠️ *Disclaimer:* This is a highly accurate AI-based suggestion using 15+ top indicators. Not financial advice. Please DYOR."
+
+    await update.message.reply_text(advice, parse_mode="Markdown")
     return ConversationHandler.END
 
 
-# ---- Main Bot Setup ----
-
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Goodbye! Type /start to initiate a new query.")
-    return ConversationHandler.END
+async def unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Type /start to begin.")
 
 
-conversation_handler = ConversationHandler(
-    entry_points=[CommandHandler('start', start)],
+# ---- Main Setup ----
+
+app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+conv_handler = ConversationHandler(
+    entry_points=[CommandHandler("start", start)],
     states={
-        ASK_COIN: [MessageHandler(filters.TEXT, ask_coin)],
-        ASK_ADVICE: [MessageHandler(filters.TEXT, handle_advice)],
+        ASK_COIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_coin)],
+        ASK_ADVICE:
+        [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_advice)],
     },
-    fallbacks=[CommandHandler('cancel', cancel)]
-)
+    fallbacks=[])
 
+app.add_handler(conv_handler)
+app.add_handler(MessageHandler(filters.ALL, unknown_message))
 
-if __name__ == '__main__':
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
+# Schedule ping every 5 minutes to keep Replit alive
+scheduler = BackgroundScheduler()
+scheduler.add_job(ping, 'interval', minutes=5)
+scheduler.start()
 
-    application.add_handler(conversation_handler)
-    application.run_polling()
+print("🤖 Bot is running...")
+app.run_polling()
